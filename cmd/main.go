@@ -48,6 +48,16 @@ func main() {
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
+
+	var soapResp soap.SOAPResponseEnvelope
+	if err := soap.UnmarshalEnvelope(respBody, &soapResp); err != nil {
+		fmt.Println("Failed to parse server response:", err)
+		fmt.Println("Raw response")
+		fmt.Println(string(respBody))
+		return
+	}
+
 	fmt.Println("Server response:")
-	fmt.Println(string(respBody))
+	fmt.Printf("Status: %s\n", soapResp.Body.UploadJSONResponse.Status)
+	fmt.Printf("Message: %s\n", soapResp.Body.UploadJSONResponse.Message)
 }
