@@ -10,12 +10,16 @@ type SOAPEnvelope struct {
 }
 
 type SOAPBody struct {
-	UploadJSONRequest UploadJSONRequest `xml:"UploadJSONRequest"`
+	UploadFileRequest UploadFileRequest `xml:"UploadFileRequest"`
 }
 
-type UploadJSONRequest struct {
-	Filename string `xml:"Filename"`
-	Content  string `xml:"Content"`
+type UploadFileRequest struct {
+	Filename string     `xml:"Filename"`
+	File     XOPInclude `xml:"File"`
+}
+
+type XOPInclude struct {
+	Href string `xml:"href,attr"`
 }
 
 type SOAPResponseEnvelope struct {
@@ -25,10 +29,10 @@ type SOAPResponseEnvelope struct {
 }
 
 type SOAPResponseBody struct {
-	UploadJSONResponse UploadJSONResponse `xml:"UploadJSONResponse"`
+	UploadFileResponse UploadFileResponse `xml:"UploadFileResponse"`
 }
 
-type UploadJSONResponse struct {
+type UploadFileResponse struct {
 	Status  string `xml:"Status"`
 	Message string `xml:"Message"`
 }

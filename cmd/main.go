@@ -2,14 +2,18 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/xml"
 	"fmt"
 	"go-file-soap-client/internal/soap"
 	"io"
 	"log"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -39,29 +43,69 @@ func main() {
 		log.Fatal("Failed to read JSON file:", err)
 	}
 
-	// Кодируем JSON-файл
-	encoded := base64.StdEncoding.EncodeToString(data)
+	// Создаём multipart/related запрос для MTOM
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
 
-	envelope := soap.SOAPEnvelope{
+	// Генерируем Content-ID для файла
+	fileCID := "file1@mtom"
+
+	// 1. SOAP Enveloper part
+	soapEnvelope := soap.SOAPEnvelope{
 		Body: soap.SOAPBody{
-			UploadJSONRequest: soap.UploadJSONRequest{
-				Filename: filename,
-				Content:  encoded,
+			UploadFileRequest: soap.UploadFileRequest{
+				Filename: filepath.Base(filename),
+				File: soap.XOPInclude{
+					Href: "cid:" + fileCID,
+				},
 			},
 		},
 	}
 
 	var buf bytes.Buffer
-	if err := xml.NewEncoder(&buf).Encode(envelope); err != nil {
-		log.Fatal("Failed to encode SOAP enveloper:", err)
+	if err := xml.NewEncoder(&buf).Encode(soapEnvelope); err != nil {
+		log.Fatal("Failed to encode SOAP envelope:", err)
 	}
 
+	soapPartHeaders := textproto.MIMEHeader{}
+	soapPartHeaders.Set("Content-Type", `application/xop+xml; charset=UTF-8; type="text/xml"`)
+	soapPartHeaders.Set("Content-Transfer-Encoding", "8bit")
+	soapPartHeaders.Set("Content-ID", "<rootpart@mtom>")
+	soapPart, err := writer.CreatePart(soapPartHeaders)
+	if err != nil {
+		log.Fatal("Failed to create SOAP part:", err)
+	}
+	_, err = soapPart.Write(buf.Bytes())
+	if err != nil {
+		log.Fatal("Failed to write SOAP part:", err)
+	}
+
+	// 2. File part
+	filePartHeaders := textproto.MIMEHeader{}
+	ext := strings.ToLower(filepath.Ext(filename))
+	mimeType := mime.TypeByExtension(ext)
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	filePartHeaders.Set("Content-Type", mimeType)
+	filePartHeaders.Set("Content-Transfer-Encoding", "binary")
+	filePartHeaders.Set("Content-ID", "<"+fileCID+">")
+	filePart, err := writer.CreatePart(filePartHeaders)
+	if err != nil {
+		log.Fatal("Failed to create flie part:", err)
+	}
+	_, err = filePart.Write(data)
+	if err != nil {
+		log.Fatal("Failed to write file part:", err)
+	}
+	writer.Close()
+
 	// Формируем зарпос
-	req, err := http.NewRequest("POST", "http://localhost:8080/api/soap", &buf)
+	req, err := http.NewRequest("POST", "http://localhost:8080/api/soap", &body)
 	if err != nil {
 		log.Fatal("Failed to create request:", err)
 	}
-	req.Header.Set("Content-Type", "text/xml; charset=utf-8")
+	req.Header.Set("Content-Type", `multipart/related; type="application/xop+xml"; start="<rootpart@mtom>"; boundary=`+writer.Boundary())
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	// Отправляем запрос
@@ -83,6 +127,6 @@ func main() {
 	}
 
 	fmt.Println("Server response:")
-	fmt.Printf("Status: %s\n", soapResp.Body.UploadJSONResponse.Status)
-	fmt.Printf("Message: %s\n", soapResp.Body.UploadJSONResponse.Message)
+	fmt.Printf("Status: %s\n", soapResp.Body.UploadFileResponse.Status)
+	fmt.Printf("Message: %s\n", soapResp.Body.UploadFileResponse.Message)
 }
