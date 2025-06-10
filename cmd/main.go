@@ -7,22 +7,39 @@ import (
 	"fmt"
 	"go-file-soap-client/internal/soap"
 	"io"
+	"log"
 	"net/http"
 	"os"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("Usage: client <json-file>")
-		return
-	}
-	filename := os.Args[1]
-	data, err := os.ReadFile(filename)
+	// Читаем .env
+	err := godotenv.Load()
 	if err != nil {
-		fmt.Println("Failed to read file:", err)
-		return
+		log.Fatal("Error while loading .env file:", err)
 	}
 
+	// Читаем значение API_TOKEN
+	token := os.Getenv("API_TOKEN")
+	if token == "" {
+		log.Fatal("API_TOKEN parameter not found in environment variables file:", err)
+	}
+
+	// Читаем значения аргументов командной строки
+	if len(os.Args) < 2 {
+		log.Fatal("Usage: client <json-file>")
+	}
+	filename := os.Args[1]
+
+	// Читаем JSON-файл
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		log.Fatal("Failed to read JSON file:", err)
+	}
+
+	// Кодируем JSON-файл
 	encoded := base64.StdEncoding.EncodeToString(data)
 
 	envelope := soap.SOAPEnvelope{
@@ -36,14 +53,22 @@ func main() {
 
 	var buf bytes.Buffer
 	if err := xml.NewEncoder(&buf).Encode(envelope); err != nil {
-		fmt.Println("Failed to encode SOAP enveloper:", err)
-		return
+		log.Fatal("Failed to encode SOAP enveloper:", err)
 	}
 
-	resp, err := http.Post("http://localhost:8080/soap", "text/xml; charset=utf-8", &buf)
+	// Формируем зарпос
+	req, err := http.NewRequest("POST", "http://localhost:8080/api/soap", &buf)
 	if err != nil {
-		fmt.Println("Failed to send: request:", err)
-		return
+		log.Fatal("Failed to create request:", err)
+	}
+	req.Header.Set("Content-Type", "text/xml; charset=utf-8")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	// Отправляем запрос
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatal("Failed to send: request:", err)
 	}
 	defer resp.Body.Close()
 
